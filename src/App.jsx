@@ -927,16 +927,22 @@ export default function CRM() {
   useEffect(() => {
     (async () => {
       try {
+        console.log('[APP] llamando a storage.get...');
         const res = await window.storage.get(STORAGE_KEY);
+        console.log('[APP] respuesta de storage:', res);
         if (res && res.value) {
           const data = JSON.parse(res.value);
+          console.log('[APP] datos parseados:', data);
+          console.log('[APP] contacts:', data.contacts);
           setContacts(data.contacts || []);
           setStages(data.stages || DEFAULT_STAGES);
           setOpportunities(data.opportunities || []);
           setTasks(data.tasks || []);
+        } else {
+          console.log('[APP] sin datos — empezando vacío');
         }
       } catch (e) {
-        // No data yet — start fresh
+        console.error('[APP] error:', e);
       }
       setLoading(false);
     })();
