@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, Calendar, Check, Trash2, Edit3, MoreHorizontal, Phone, Mail, Building2, ArrowLeft, GripVertical, Trophy, XCircle, ExternalLink, ChevronDown, PawPrint, TrendingUp, Users, AlertCircle, Clock, Repeat, Receipt, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Plus, X, Calendar, Check, Trash2, Edit3, MoreHorizontal, Phone, Mail, Building2, ArrowLeft, GripVertical, Trophy, XCircle, ExternalLink, ChevronDown, PawPrint, TrendingUp, Users, AlertCircle, Clock, Repeat, Receipt, Sparkles, Search } from 'lucide-react';
 
 const STORAGE_KEY = 'crm-data-v1';
 
@@ -212,6 +212,109 @@ input, textarea, select { font-family: inherit; }
 }
 .head-actions { display: flex; gap: 10px; }
 
+/* Date filter (dashboard) */
+.date-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 22px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.date-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 500;
+  padding-right: 10px;
+  margin-right: 4px;
+  border-right: 1px solid var(--border);
+}
+.date-pill {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  transition: all 0.15s;
+}
+.date-pill:hover { background: var(--surface-2); }
+.date-pill.active {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
+.date-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+.date-input-mini {
+  width: 140px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--ink);
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+}
+.date-input-mini:focus { border-color: var(--ink); }
+
+/* Search bar (contacts) */
+.search-bar {
+  position: relative;
+  margin-bottom: 18px;
+}
+.search-bar .search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+.search-bar input {
+  padding-left: 38px;
+  padding-right: 38px;
+}
+.search-bar .clear-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: var(--surface-2);
+  color: var(--muted);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  transition: all 0.15s;
+}
+.search-bar .clear-btn:hover { color: var(--ink); background: var(--border-strong); }
+.search-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: -10px;
+  margin-bottom: 14px;
+  font-style: italic;
+}
+
 /* Kanban */
 .kanban {
   display: flex;
@@ -306,6 +409,11 @@ input, textarea, select { font-family: inherit; }
   transition: all 0.15s;
   position: relative;
   box-shadow: 0 1px 2px rgba(26, 24, 21, 0.03);
+  /* Allow vertical scroll, we handle horizontal drag manually on touch */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .card:hover {
   border-color: var(--border-strong);
@@ -313,6 +421,10 @@ input, textarea, select { font-family: inherit; }
   box-shadow: 0 4px 12px rgba(26, 24, 21, 0.06);
 }
 .card.dragging { opacity: 0.4; }
+.card.touch-pressing {
+  transform: scale(0.98);
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 4px 12px rgba(26, 24, 21, 0.08);
+}
 .card-contact {
   font-size: 10.5px;
   text-transform: uppercase;
@@ -360,6 +472,17 @@ input, textarea, select { font-family: inherit; }
 
 .card.won { border-left: 3px solid var(--won); background: linear-gradient(to right, rgba(45, 90, 63, 0.04), var(--surface) 30%); }
 .card.lost { border-left: 3px solid var(--lost); opacity: 0.75; }
+
+/* Touch-drag ghost */
+.touch-ghost {
+  position: fixed !important;
+  z-index: 9999 !important;
+  pointer-events: none !important;
+  opacity: 0.92 !important;
+  transform: rotate(2deg) scale(1.04) !important;
+  box-shadow: 0 16px 36px rgba(26, 24, 21, 0.25) !important;
+  transition: none !important;
+}
 
 /* Modal */
 .modal-overlay {
@@ -822,6 +945,11 @@ input, textarea, select { font-family: inherit; }
   .kanban { margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
   .row, .row-3 { grid-template-columns: 1fr; }
   .header-inner { flex-direction: column; align-items: stretch; }
+  .date-filter { padding: 8px; gap: 4px; }
+  .date-filter-label { display: none; }
+  .date-pill { padding: 6px 10px; font-size: 12px; }
+  .date-custom { width: 100%; margin-left: 0; padding-left: 0; border-left: none; flex-wrap: wrap; }
+  .date-input-mini { flex: 1; min-width: 130px; }
 }
 `;
 
@@ -1242,12 +1370,217 @@ export default function CRM() {
 }
 
 // ────────────────────────────────────────────────
-// PIPELINE VIEW
+// PIPELINE VIEW (with mobile touch drag)
 // ────────────────────────────────────────────────
 function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCardClick, onDragStart, onDragEnd, draggingId, dragOverStage, setDragOverStage, onDrop, onNewInStage, onDropStatus }) {
   const totalValue = opps.reduce((s, o) => s + (Number(o.value) || 0), 0);
   const [dragOverZone, setDragOverZone] = useState(null);
+  const [touchPressId, setTouchPressId] = useState(null);
   const isDragging = !!draggingId;
+
+  // ── Touch drag (mobile) ─────────────────────────────
+  // Stored in a ref so handlers attached via addEventListener (passive: false)
+  // can read/write without stale closures.
+  const longPressTimerRef = useRef(null);
+  const dragStateRef = useRef({
+    active: false,        // true once long-press fires
+    oppId: null,
+    ghost: null,          // floating clone of the card
+    offsetX: 0,
+    offsetY: 0,
+    startX: 0,
+    startY: 0,
+    suppressClick: false, // set on touchend after a successful drag
+  });
+
+  // Latest callback refs so the global listeners always see fresh fns
+  const cbRef = useRef({ onDrop, onDropStatus, onDragEnd, setDragOverStage });
+  useEffect(() => {
+    cbRef.current = { onDrop, onDropStatus, onDragEnd, setDragOverStage };
+  });
+
+  // Global touchmove + touchend listeners. Have to use addEventListener to
+  // pass { passive: false } — React's synthetic touchmove is passive, so
+  // preventDefault inside it does nothing.
+  useEffect(() => {
+    function clearLongPress() {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    }
+
+    function cleanupGhost() {
+      const s = dragStateRef.current;
+      if (s.ghost && s.ghost.parentNode) s.ghost.parentNode.removeChild(s.ghost);
+      s.ghost = null;
+    }
+
+    function reset() {
+      cleanupGhost();
+      document.body.style.overflow = '';
+      dragStateRef.current = {
+        active: false, oppId: null, ghost: null,
+        offsetX: 0, offsetY: 0, startX: 0, startY: 0,
+        suppressClick: dragStateRef.current.suppressClick,
+      };
+      setDragOverZone(null);
+      cbRef.current.setDragOverStage(null);
+    }
+
+    function onTouchMove(e) {
+      const s = dragStateRef.current;
+
+      // Pre-drag: if user moves before long-press fires, cancel it (treat as scroll).
+      if (longPressTimerRef.current && !s.active) {
+        const t = e.touches[0];
+        const dx = t.clientX - s.startX;
+        const dy = t.clientY - s.startY;
+        if (Math.hypot(dx, dy) > 10) {
+          clearLongPress();
+          setTouchPressId(null);
+        }
+        return;
+      }
+
+      if (!s.active) return;
+
+      // Active drag: prevent scroll, move ghost, detect target.
+      e.preventDefault();
+      const t = e.touches[0];
+
+      if (s.ghost) {
+        s.ghost.style.left = (t.clientX - s.offsetX) + 'px';
+        s.ghost.style.top = (t.clientY - s.offsetY) + 'px';
+      }
+
+      // Hide ghost so elementFromPoint sees what's underneath.
+      if (s.ghost) s.ghost.style.display = 'none';
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      if (s.ghost) s.ghost.style.display = '';
+
+      const col = el && el.closest ? el.closest('[data-stage-id]') : null;
+      const zone = el && el.closest ? el.closest('[data-drop-status]') : null;
+
+      if (col) {
+        cbRef.current.setDragOverStage(col.getAttribute('data-stage-id'));
+        setDragOverZone(null);
+      } else if (zone) {
+        setDragOverZone(zone.getAttribute('data-drop-status'));
+        cbRef.current.setDragOverStage(null);
+      } else {
+        cbRef.current.setDragOverStage(null);
+        setDragOverZone(null);
+      }
+    }
+
+    function onTouchEnd(e) {
+      clearLongPress();
+      const s = dragStateRef.current;
+      setTouchPressId(null);
+
+      if (!s.active) return;
+
+      // Detect final drop target.
+      const t = e.changedTouches[0];
+      if (s.ghost) s.ghost.style.display = 'none';
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      const col = el && el.closest ? el.closest('[data-stage-id]') : null;
+      const zone = el && el.closest ? el.closest('[data-drop-status]') : null;
+
+      if (col) {
+        cbRef.current.onDrop(col.getAttribute('data-stage-id'));
+      } else if (zone) {
+        cbRef.current.onDropStatus(zone.getAttribute('data-drop-status'));
+      } else {
+        cbRef.current.onDragEnd();
+      }
+
+      // Suppress the synthetic click that would otherwise fire after touchend.
+      if (e.cancelable) e.preventDefault();
+      dragStateRef.current.suppressClick = true;
+      setTimeout(() => { dragStateRef.current.suppressClick = false; }, 400);
+
+      reset();
+    }
+
+    function onTouchCancel() {
+      clearLongPress();
+      setTouchPressId(null);
+      const s = dragStateRef.current;
+      if (s.active) cbRef.current.onDragEnd();
+      reset();
+    }
+
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchcancel', onTouchCancel);
+    return () => {
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('touchcancel', onTouchCancel);
+      clearLongPress();
+    };
+  }, []);
+
+  function handleCardTouchStart(e, oppId) {
+    if (e.touches.length !== 1) return;
+    const cardEl = e.currentTarget;
+    const t = e.touches[0];
+    const startX = t.clientX;
+    const startY = t.clientY;
+
+    dragStateRef.current.startX = startX;
+    dragStateRef.current.startY = startY;
+
+    setTouchPressId(oppId);
+
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+
+      // Enter drag mode — clone the card as a floating ghost.
+      const rect = cardEl.getBoundingClientRect();
+      const ghost = cardEl.cloneNode(true);
+      ghost.classList.add('touch-ghost');
+      ghost.style.left = rect.left + 'px';
+      ghost.style.top = rect.top + 'px';
+      ghost.style.width = rect.width + 'px';
+      ghost.style.height = rect.height + 'px';
+      ghost.style.margin = '0';
+      document.body.appendChild(ghost);
+
+      dragStateRef.current = {
+        active: true,
+        oppId,
+        ghost,
+        offsetX: startX - rect.left,
+        offsetY: startY - rect.top,
+        startX,
+        startY,
+        suppressClick: false,
+      };
+
+      onDragStart(oppId);
+      setTouchPressId(null);
+
+      // Lock body scroll while dragging.
+      document.body.style.overflow = 'hidden';
+
+      // Haptic blip if available.
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        try { navigator.vibrate(35); } catch {}
+      }
+    }, 250);
+  }
+
+  function handleCardClick(e, opp) {
+    // Swallow the synthetic click that fires right after a touch-drop.
+    if (dragStateRef.current.suppressClick) {
+      e.preventDefault();
+      return;
+    }
+    onCardClick(opp);
+  }
 
   return (
     <>
@@ -1273,6 +1606,7 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
             <div
               key={stage.id}
               className="column"
+              data-stage-id={stage.id}
               onDragOver={(e) => { e.preventDefault(); setDragOverStage(stage.id); }}
               onDragLeave={() => setDragOverStage(null)}
               onDrop={() => onDrop(stage.id)}
@@ -1289,7 +1623,7 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
                   </button>
                 </div>
               </div>
-              <div className={`col-body ${dragOverStage === stage.id ? 'drag-over' : ''}`}>
+              <div className={`col-body ${dragOverStage === stage.id ? 'drag-over' : ''}`} data-stage-id={stage.id}>
                 {colOpps.length === 0 && <div className="col-empty">vacío</div>}
                 {colOpps.map(opp => {
                   const c = contactById(opp.contactId);
@@ -1299,11 +1633,12 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
                   return (
                     <div
                       key={opp.id}
-                      className={`card ${draggingId === opp.id ? 'dragging' : ''}`}
+                      className={`card ${draggingId === opp.id ? 'dragging' : ''} ${touchPressId === opp.id ? 'touch-pressing' : ''}`}
                       draggable
                       onDragStart={() => onDragStart(opp.id)}
                       onDragEnd={onDragEnd}
-                      onClick={() => onCardClick(opp)}
+                      onTouchStart={(e) => handleCardTouchStart(e, opp.id)}
+                      onClick={(e) => handleCardClick(e, opp)}
                     >
                       <div className="card-contact">
                         {c ? c.name : 'Sin contacto'}
@@ -1331,6 +1666,7 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
       <div className={`drop-zones ${isDragging ? 'dragging' : ''}`}>
         <div
           className={`drop-zone won ${isDragging ? 'dragging' : ''} ${dragOverZone === 'won' ? 'over' : ''}`}
+          data-drop-status="won"
           onDragOver={(e) => { e.preventDefault(); setDragOverZone('won'); }}
           onDragLeave={() => setDragOverZone(null)}
           onDrop={() => { onDropStatus('won'); setDragOverZone(null); }}
@@ -1340,6 +1676,7 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
         </div>
         <div
           className={`drop-zone lost ${isDragging ? 'dragging' : ''} ${dragOverZone === 'lost' ? 'over' : ''}`}
+          data-drop-status="lost"
           onDragOver={(e) => { e.preventDefault(); setDragOverZone('lost'); }}
           onDragLeave={() => setDragOverZone(null)}
           onDrop={() => { onDropStatus('lost'); setDragOverZone(null); }}
@@ -1353,9 +1690,30 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
 }
 
 // ────────────────────────────────────────────────
-// CONTACTS VIEW
+// CONTACTS VIEW (with search)
 // ────────────────────────────────────────────────
 function ContactsView({ contacts, opportunities, onNew, onEdit, onDelete }) {
+  const [search, setSearch] = useState('');
+
+  const filteredContacts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter(c => {
+      const haystack = [
+        c.name,
+        c.email,
+        c.phone,
+        c.petName,
+        c.petType,
+        c.petBreed,
+        c.notes,
+        c.petAge != null ? String(c.petAge) : '',
+        c.purchaseFrequency != null ? String(c.purchaseFrequency) : '',
+      ].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [contacts, search]);
+
   return (
     <>
       <div className="page-head">
@@ -1368,15 +1726,48 @@ function ContactsView({ contacts, opportunities, onNew, onEdit, onDelete }) {
         </div>
       </div>
 
+      {contacts.length > 0 && (
+        <>
+          <div className="search-bar">
+            <Search size={15} className="search-icon" />
+            <input
+              className="input"
+              type="text"
+              placeholder="Buscar por nombre, email, teléfono, mascota, raza, notas…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            {search && (
+              <button className="clear-btn" onClick={() => setSearch('')} title="Limpiar">
+                <X size={13} />
+              </button>
+            )}
+          </div>
+          {search && (
+            <div className="search-meta">
+              {filteredContacts.length === 0
+                ? `Ningún contacto coincide con "${search}".`
+                : `Mostrando ${filteredContacts.length} de ${contacts.length} contactos.`}
+            </div>
+          )}
+        </>
+      )}
+
       {contacts.length === 0 ? (
         <div className="empty">
           <div className="empty-title">Sin contactos todavía</div>
           <div className="empty-text">Agregá tu primer contacto para empezar a registrar oportunidades.</div>
           <button className="btn btn-primary" onClick={onNew}><Plus size={14} /> Agregar contacto</button>
         </div>
+      ) : filteredContacts.length === 0 ? (
+        <div className="empty">
+          <div className="empty-title">Sin resultados</div>
+          <div className="empty-text">Probá con otra palabra o limpiá el filtro.</div>
+          <button className="btn" onClick={() => setSearch('')}>Limpiar búsqueda</button>
+        </div>
       ) : (
         <div className="contact-grid">
-          {contacts.map(c => {
+          {filteredContacts.map(c => {
             const oppsList = opportunities.filter(o => o.contactId === c.id);
             const active = oppsList.filter(o => o.status === 'active').length;
             const won = oppsList.filter(o => o.status === 'won').length;
@@ -1813,7 +2204,6 @@ function ContactForm({ initial, onSave, onClose }) {
 // ────────────────────────────────────────────────
 function StageManager({ stages, opportunities, onSave, onClose }) {
   const [list, setList] = useState([...stages]);
-  const [draggingIdx, setDraggingIdx] = useState(null);
 
   function addStage() {
     setList([...list, { id: uid(), name: 'Nueva etapa' }]);
@@ -1869,30 +2259,119 @@ function StageManager({ stages, opportunities, onSave, onClose }) {
 }
 
 // ────────────────────────────────────────────────
-// DASHBOARD VIEW
+// DASHBOARD VIEW (with date filter)
 // ────────────────────────────────────────────────
+const DATE_PRESETS = [
+  { id: 'all', label: 'Todo' },
+  { id: 'today', label: 'Hoy' },
+  { id: '7d', label: '7 días' },
+  { id: '30d', label: '30 días' },
+  { id: 'month', label: 'Este mes' },
+  { id: 'year', label: 'Este año' },
+  { id: 'custom', label: 'Personalizado' },
+];
+
+function getDateBounds(range) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+
+  switch (range.preset) {
+    case 'today':
+      return { from: today, to: tomorrow };
+    case '7d': {
+      const from = new Date(today);
+      from.setDate(today.getDate() - 6);
+      return { from, to: tomorrow };
+    }
+    case '30d': {
+      const from = new Date(today);
+      from.setDate(today.getDate() - 29);
+      return { from, to: tomorrow };
+    }
+    case 'month': {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1);
+      const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      return { from, to };
+    }
+    case 'year': {
+      const from = new Date(now.getFullYear(), 0, 1);
+      const to = new Date(now.getFullYear() + 1, 0, 1);
+      return { from, to };
+    }
+    case 'custom': {
+      const from = range.from ? new Date(range.from + 'T00:00:00') : null;
+      const to = range.to ? new Date(range.to + 'T23:59:59.999') : null;
+      // Normalize: if "to" given, push to end-of-day-exclusive
+      const toExcl = to ? new Date(to.getTime() + 1) : null;
+      return { from, to: toExcl };
+    }
+    case 'all':
+    default:
+      return { from: null, to: null };
+  }
+}
+
+function inDateBounds(iso, bounds) {
+  if (!bounds.from && !bounds.to) return true;
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (bounds.from && d < bounds.from) return false;
+  if (bounds.to && d >= bounds.to) return false;
+  return true;
+}
+
+function rangeLabel(range) {
+  const fmt = (d) => d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
+  const bounds = getDateBounds(range);
+  if (!bounds.from && !bounds.to) return 'período completo';
+  if (range.preset === 'today') return 'hoy';
+  if (range.preset === '7d') return 'últimos 7 días';
+  if (range.preset === '30d') return 'últimos 30 días';
+  if (range.preset === 'month') return 'este mes';
+  if (range.preset === 'year') return 'este año';
+  if (range.preset === 'custom') {
+    if (bounds.from && bounds.to) {
+      const toShown = new Date(bounds.to.getTime() - 1);
+      return `${fmt(bounds.from)} → ${fmt(toShown)}`;
+    }
+    if (bounds.from) return `desde ${fmt(bounds.from)}`;
+    if (bounds.to) return `hasta ${fmt(new Date(bounds.to.getTime() - 1))}`;
+  }
+  return '';
+}
+
 function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteTask, onOppClick }) {
-  const wonOpps = opportunities.filter(o => o.status === 'won');
+  const [range, setRange] = useState({ preset: 'all', from: '', to: '' });
+  const bounds = useMemo(() => getDateBounds(range), [range]);
+
+  // Filter won opps by closedAt within the selected range.
+  const wonOpps = useMemo(
+    () => opportunities.filter(o => o.status === 'won' && inDateBounds(o.closedAt, bounds)),
+    [opportunities, bounds]
+  );
+
   const totalRevenue = wonOpps.reduce((s, o) => s + (Number(o.value) || 0), 0);
   const salesCount = wonOpps.length;
   const avgTicket = salesCount > 0 ? totalRevenue / salesCount : 0;
 
-  // Top customers by revenue (won opps grouped)
-  const customerStats = {};
-  wonOpps.forEach(o => {
-    if (!customerStats[o.contactId]) {
-      customerStats[o.contactId] = { contactId: o.contactId, total: 0, count: 0 };
-    }
-    customerStats[o.contactId].total += Number(o.value) || 0;
-    customerStats[o.contactId].count += 1;
-  });
-  const topCustomers = Object.values(customerStats)
-    .map(s => ({ ...s, contact: contacts.find(c => c.id === s.contactId) }))
-    .filter(s => s.contact)
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5);
+  // Top customers within range
+  const topCustomers = useMemo(() => {
+    const stats = {};
+    wonOpps.forEach(o => {
+      if (!stats[o.contactId]) stats[o.contactId] = { contactId: o.contactId, total: 0, count: 0 };
+      stats[o.contactId].total += Number(o.value) || 0;
+      stats[o.contactId].count += 1;
+    });
+    return Object.values(stats)
+      .map(s => ({ ...s, contact: contacts.find(c => c.id === s.contactId) }))
+      .filter(s => s.contact)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+  }, [wonOpps, contacts]);
 
-  // Tasks: pending + with due date, sorted by date asc
+  // Tasks: not affected by date filter — they're always "what's pending now"
   const pendingTasks = tasks
     .filter(t => !t.completed && t.dueDate)
     .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
@@ -1915,6 +2394,9 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
     return { label: '—', sub: '' };
   }
 
+  const isFiltered = range.preset !== 'all';
+  const rangeText = rangeLabel(range);
+
   return (
     <>
       <div className="page-head">
@@ -1924,19 +2406,57 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
         </div>
       </div>
 
+      <div className="date-filter">
+        <span className="date-filter-label"><Calendar size={12} /> Período</span>
+        {DATE_PRESETS.map(p => (
+          <button
+            key={p.id}
+            className={`date-pill ${range.preset === p.id ? 'active' : ''}`}
+            onClick={() => setRange({ ...range, preset: p.id })}
+          >
+            {p.label}
+          </button>
+        ))}
+        {range.preset === 'custom' && (
+          <div className="date-custom">
+            <input
+              type="date"
+              className="date-input-mini"
+              value={range.from}
+              max={range.to || undefined}
+              onChange={e => setRange({ ...range, from: e.target.value })}
+              placeholder="desde"
+            />
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>→</span>
+            <input
+              type="date"
+              className="date-input-mini"
+              value={range.to}
+              min={range.from || undefined}
+              onChange={e => setRange({ ...range, to: e.target.value })}
+              placeholder="hasta"
+            />
+          </div>
+        )}
+      </div>
+
       <div className="dashboard-stats">
         <div className="stat-card" style={{ '--stat-accent': '#2d5a3f', '--stat-soft': 'rgba(45, 90, 63, 0.1)' }}>
           <div className="stat-icon"><TrendingUp size={16} /></div>
           <div className="stat-label">Facturación</div>
           <div className="stat-value">{formatMoney(totalRevenue)}</div>
-          <div className="stat-foot">{salesCount === 0 ? 'sin ventas todavía' : `${salesCount} venta${salesCount !== 1 ? 's' : ''} cerrada${salesCount !== 1 ? 's' : ''}`}</div>
+          <div className="stat-foot">
+            {salesCount === 0
+              ? (isFiltered ? `sin ventas en ${rangeText}` : 'sin ventas todavía')
+              : `${salesCount} venta${salesCount !== 1 ? 's' : ''} · ${rangeText}`}
+          </div>
         </div>
 
         <div className="stat-card" style={{ '--stat-accent': '#c8853d', '--stat-soft': 'rgba(200, 133, 61, 0.1)' }}>
           <div className="stat-icon"><Receipt size={16} /></div>
           <div className="stat-label">Ticket promedio</div>
           <div className="stat-value">{salesCount > 0 ? formatMoney(avgTicket) : '—'}</div>
-          <div className="stat-foot">{salesCount > 0 ? `sobre ${salesCount} venta${salesCount !== 1 ? 's' : ''}` : 'sin datos'}</div>
+          <div className="stat-foot">{salesCount > 0 ? `sobre ${salesCount} venta${salesCount !== 1 ? 's' : ''}` : 'sin datos en el período'}</div>
         </div>
 
         <div className="stat-card" style={{ '--stat-accent': '#5a7a8a', '--stat-soft': 'rgba(90, 122, 138, 0.1)' }}>
@@ -1957,9 +2477,9 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
       <div className="dashboard-cols">
         <div className="panel">
           <div className="panel-title"><Users size={18} /> Clientes que más facturan</div>
-          <div className="panel-sub">Top 5 ordenado por monto total ganado.</div>
+          <div className="panel-sub">Top 5 ordenado por monto total ganado · {rangeText}.</div>
           {topCustomers.length === 0 ? (
-            <div className="panel-empty">Sin ventas cerradas todavía.</div>
+            <div className="panel-empty">{isFiltered ? `Sin ventas cerradas en ${rangeText}.` : 'Sin ventas cerradas todavía.'}</div>
           ) : (
             topCustomers.map((s, idx) => (
               <div key={s.contactId} className="top-row">
@@ -1980,7 +2500,7 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
 
         <div className="panel">
           <div className="panel-title"><Clock size={18} /> Tareas vencidas y a vencer</div>
-          <div className="panel-sub">{overdueTasks.length} vencida{overdueTasks.length !== 1 ? 's' : ''} · {upcomingTasks.length} próxima{upcomingTasks.length !== 1 ? 's' : ''}.</div>
+          <div className="panel-sub">{overdueTasks.length} vencida{overdueTasks.length !== 1 ? 's' : ''} · {upcomingTasks.length} próxima{upcomingTasks.length !== 1 ? 's' : ''} · independiente del período.</div>
           {taskList.length === 0 ? (
             <div className="panel-empty">No hay tareas pendientes con fecha.</div>
           ) : (
