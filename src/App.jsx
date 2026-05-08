@@ -409,7 +409,6 @@ input, textarea, select { font-family: inherit; }
   transition: all 0.15s;
   position: relative;
   box-shadow: 0 1px 2px rgba(26, 24, 21, 0.03);
-  /* Allow vertical scroll, we handle horizontal drag manually on touch */
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
@@ -932,6 +931,71 @@ input, textarea, select { font-family: inherit; }
 .dash-task.done { opacity: 0.5; }
 .dash-task.done .dash-task-title { text-decoration: line-through; }
 
+/* ── Contact Typeahead ── */
+.typeahead-wrap {
+  position: relative;
+}
+.typeahead-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  z-index: 200;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(26, 24, 21, 0.10);
+  scrollbar-width: thin;
+}
+.typeahead-item {
+  padding: 9px 13px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.typeahead-item:last-child { border-bottom: none; }
+.typeahead-item:hover,
+.typeahead-item.active {
+  background: var(--surface-2);
+}
+.typeahead-item-name { font-weight: 500; }
+.typeahead-item-pet {
+  font-size: 12px;
+  color: var(--muted);
+}
+.typeahead-empty {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+}
+.typeahead-input-wrap {
+  position: relative;
+}
+.typeahead-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  transition: all 0.15s;
+}
+.typeahead-clear:hover { background: var(--surface-2); color: var(--ink); }
+
 @media (max-width: 1024px) {
   .dashboard-stats { grid-template-columns: repeat(2, 1fr); }
   .dashboard-cols { grid-template-columns: 1fr; }
@@ -1032,6 +1096,139 @@ function downloadIcs(task) {
 }
 
 // ────────────────────────────────────────────────
+// CONTACT TYPEAHEAD COMPONENT
+// ────────────────────────────────────────────────
+function ContactTypeahead({ contacts, value, onChange, onNewContact }) {
+  const selectedContact = contacts.find(c => c.id === value);
+
+  function displayLabel(c) {
+    if (!c) return '';
+    return c.name + (c.petName ? ` — ${c.petName}` : '');
+  }
+
+  const [inputVal, setInputVal] = useState(displayLabel(selectedContact));
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(-1);
+  const wrapRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Keep label in sync if the selected contact changes externally
+  useEffect(() => {
+    const c = contacts.find(c => c.id === value);
+    setInputVal(displayLabel(c));
+  }, [value, contacts]);
+
+  const filtered = useMemo(() => {
+    const q = inputVal.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter(c =>
+      (c.name + (c.petName || '') + (c.petBreed || '')).toLowerCase().includes(q)
+    );
+  }, [contacts, inputVal]);
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+        // Reset display to current valid selection
+        const c = contacts.find(c => c.id === value);
+        setInputVal(displayLabel(c));
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [value, contacts]);
+
+  function selectContact(c) {
+    onChange(c.id);
+    setInputVal(displayLabel(c));
+    setOpen(false);
+    setCursor(-1);
+  }
+
+  function handleKeyDown(e) {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter') setOpen(true);
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setCursor(c => Math.min(c + 1, filtered.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setCursor(c => Math.max(c - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (cursor >= 0 && filtered[cursor]) selectContact(filtered[cursor]);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+      const c = contacts.find(c => c.id === value);
+      setInputVal(displayLabel(c));
+    }
+  }
+
+  return (
+    <div className="typeahead-wrap" ref={wrapRef}>
+      <div className="typeahead-input-wrap">
+        <input
+          ref={inputRef}
+          className="input"
+          value={inputVal}
+          placeholder="Buscar contacto…"
+          onChange={e => {
+            setInputVal(e.target.value);
+            setOpen(true);
+            setCursor(-1);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
+          autoComplete="off"
+        />
+        {inputVal && (
+          <button
+            className="typeahead-clear"
+            tabIndex={-1}
+            onMouseDown={e => {
+              e.preventDefault();
+              setInputVal('');
+              onChange('');
+              setOpen(true);
+              inputRef.current?.focus();
+            }}
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="typeahead-dropdown">
+          {filtered.length === 0 ? (
+            <div className="typeahead-empty">Sin resultados.</div>
+          ) : (
+            filtered.map((c, idx) => (
+              <div
+                key={c.id}
+                className={`typeahead-item ${cursor === idx ? 'active' : ''}`}
+                onMouseDown={e => { e.preventDefault(); selectContact(c); }}
+                onMouseEnter={() => setCursor(idx)}
+              >
+                <span className="typeahead-item-name">{c.name}</span>
+                {c.petName && (
+                  <span className="typeahead-item-pet">
+                    🐾 {c.petName}{c.petType ? ` · ${c.petType}` : ''}
+                  </span>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────
 // MAIN APP
 // ────────────────────────────────────────────────
 export default function CRM() {
@@ -1051,6 +1248,11 @@ export default function CRM() {
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverStage, setDragOverStage] = useState(null);
 
+  // ── FIX 1: track if contact form was opened from within opp form ──
+  // Stores the opp form context so we can reopen it after contact creation.
+  // Shape: { stageId?: string, initialContactId?: string } | null
+  const pendingOppContextRef = useRef(null);
+
   // Load
   useEffect(() => {
     (async () => {
@@ -1061,7 +1263,6 @@ export default function CRM() {
         if (res && res.value) {
           const data = JSON.parse(res.value);
           console.log('[APP] datos parseados:', data);
-          console.log('[APP] contacts:', data.contacts);
           setContacts(data.contacts || []);
           setStages(data.stages || DEFAULT_STAGES);
           setOpportunities(data.opportunities || []);
@@ -1099,15 +1300,32 @@ export default function CRM() {
   // CONTACT actions
   function saveContact(data) {
     if (data.id) {
+      // Editing existing contact
       setContacts(contacts.map(c => c.id === data.id ? data : c));
       showToast('Contacto actualizado');
+      setShowNewContact(false);
+      setEditingContact(null);
     } else {
-      setContacts([...contacts, { ...data, id: uid() }]);
+      // Creating new contact
+      const newId = uid();
+      const newContact = { ...data, id: newId };
+      setContacts(prev => [...prev, newContact]);
       showToast('Contacto agregado');
+      setShowNewContact(false);
+      setEditingContact(null);
+
+      // ── FIX 1: if we came from the opp form, reopen it with the new contact pre-selected
+      if (pendingOppContextRef.current !== null) {
+        const ctx = pendingOppContextRef.current;
+        pendingOppContextRef.current = null;
+        // Small timeout so the contacts state update propagates before the form mounts
+        setTimeout(() => {
+          setShowNewOpp({ ...ctx, initialContactId: newId });
+        }, 0);
+      }
     }
-    setShowNewContact(false);
-    setEditingContact(null);
   }
+
   function deleteContact(id) {
     if (!confirm('¿Eliminar este contacto y todas sus oportunidades?')) return;
     const oppIds = opportunities.filter(o => o.contactId === id).map(o => o.id);
@@ -1142,7 +1360,6 @@ export default function CRM() {
     setOpportunities(opportunities.map(o => o.id === id ? { ...o, status, closedAt: status !== 'active' ? new Date().toISOString() : null } : o));
     if (selectedOpp?.id === id) setSelectedOpp({ ...selectedOpp, status });
 
-    // Auto-generate follow-up task on win (only on transition to won)
     let autoTaskCreated = false;
     if (status === 'won' && !wasWon && opp) {
       const contact = contacts.find(c => c.id === opp.contactId);
@@ -1339,10 +1556,20 @@ export default function CRM() {
           <OpportunityForm
             contacts={contacts}
             stages={stages}
-            initial={typeof showNewOpp === 'object' ? { stageId: showNewOpp.stageId } : null}
+            initial={typeof showNewOpp === 'object' ? showNewOpp : null}
             onSave={saveOpp}
             onClose={() => setShowNewOpp(false)}
-            onNewContact={() => { setShowNewOpp(false); setShowNewContact(true); }}
+            onNewContact={(currentFormState) => {
+              // ── FIX 1: save current opp form context before switching to contact form
+              pendingOppContextRef.current = {
+                stageId: currentFormState?.stageId,
+                initialContactId: currentFormState?.contactId,
+                // carry over other form fields so the form reopens with them intact
+                _savedForm: currentFormState,
+              };
+              setShowNewOpp(false);
+              setShowNewContact(true);
+            }}
           />
         )}
 
@@ -1350,7 +1577,17 @@ export default function CRM() {
           <ContactForm
             initial={editingContact}
             onSave={saveContact}
-            onClose={() => { setShowNewContact(false); setEditingContact(null); }}
+            onClose={() => {
+              setShowNewContact(false);
+              setEditingContact(null);
+              // If user dismisses without saving and we had a pending opp context,
+              // reopen the opp form as-is.
+              if (pendingOppContextRef.current !== null) {
+                const ctx = pendingOppContextRef.current;
+                pendingOppContextRef.current = null;
+                setTimeout(() => setShowNewOpp(ctx), 0);
+              }
+            }}
           />
         )}
 
@@ -1378,30 +1615,23 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
   const [touchPressId, setTouchPressId] = useState(null);
   const isDragging = !!draggingId;
 
-  // ── Touch drag (mobile) ─────────────────────────────
-  // Stored in a ref so handlers attached via addEventListener (passive: false)
-  // can read/write without stale closures.
   const longPressTimerRef = useRef(null);
   const dragStateRef = useRef({
-    active: false,        // true once long-press fires
+    active: false,
     oppId: null,
-    ghost: null,          // floating clone of the card
+    ghost: null,
     offsetX: 0,
     offsetY: 0,
     startX: 0,
     startY: 0,
-    suppressClick: false, // set on touchend after a successful drag
+    suppressClick: false,
   });
 
-  // Latest callback refs so the global listeners always see fresh fns
   const cbRef = useRef({ onDrop, onDropStatus, onDragEnd, setDragOverStage });
   useEffect(() => {
     cbRef.current = { onDrop, onDropStatus, onDragEnd, setDragOverStage };
   });
 
-  // Global touchmove + touchend listeners. Have to use addEventListener to
-  // pass { passive: false } — React's synthetic touchmove is passive, so
-  // preventDefault inside it does nothing.
   useEffect(() => {
     function clearLongPress() {
       if (longPressTimerRef.current) {
@@ -1430,8 +1660,6 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
 
     function onTouchMove(e) {
       const s = dragStateRef.current;
-
-      // Pre-drag: if user moves before long-press fires, cancel it (treat as scroll).
       if (longPressTimerRef.current && !s.active) {
         const t = e.touches[0];
         const dx = t.clientX - s.startX;
@@ -1442,26 +1670,18 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
         }
         return;
       }
-
       if (!s.active) return;
-
-      // Active drag: prevent scroll, move ghost, detect target.
       e.preventDefault();
       const t = e.touches[0];
-
       if (s.ghost) {
         s.ghost.style.left = (t.clientX - s.offsetX) + 'px';
         s.ghost.style.top = (t.clientY - s.offsetY) + 'px';
       }
-
-      // Hide ghost so elementFromPoint sees what's underneath.
       if (s.ghost) s.ghost.style.display = 'none';
       const el = document.elementFromPoint(t.clientX, t.clientY);
       if (s.ghost) s.ghost.style.display = '';
-
       const col = el && el.closest ? el.closest('[data-stage-id]') : null;
       const zone = el && el.closest ? el.closest('[data-drop-status]') : null;
-
       if (col) {
         cbRef.current.setDragOverStage(col.getAttribute('data-stage-id'));
         setDragOverZone(null);
@@ -1478,16 +1698,12 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
       clearLongPress();
       const s = dragStateRef.current;
       setTouchPressId(null);
-
       if (!s.active) return;
-
-      // Detect final drop target.
       const t = e.changedTouches[0];
       if (s.ghost) s.ghost.style.display = 'none';
       const el = document.elementFromPoint(t.clientX, t.clientY);
       const col = el && el.closest ? el.closest('[data-stage-id]') : null;
       const zone = el && el.closest ? el.closest('[data-drop-status]') : null;
-
       if (col) {
         cbRef.current.onDrop(col.getAttribute('data-stage-id'));
       } else if (zone) {
@@ -1495,12 +1711,9 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
       } else {
         cbRef.current.onDragEnd();
       }
-
-      // Suppress the synthetic click that would otherwise fire after touchend.
       if (e.cancelable) e.preventDefault();
       dragStateRef.current.suppressClick = true;
       setTimeout(() => { dragStateRef.current.suppressClick = false; }, 400);
-
       reset();
     }
 
@@ -1529,16 +1742,11 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
     const t = e.touches[0];
     const startX = t.clientX;
     const startY = t.clientY;
-
     dragStateRef.current.startX = startX;
     dragStateRef.current.startY = startY;
-
     setTouchPressId(oppId);
-
     longPressTimerRef.current = setTimeout(() => {
       longPressTimerRef.current = null;
-
-      // Enter drag mode — clone the card as a floating ghost.
       const rect = cardEl.getBoundingClientRect();
       const ghost = cardEl.cloneNode(true);
       ghost.classList.add('touch-ghost');
@@ -1548,25 +1756,15 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
       ghost.style.height = rect.height + 'px';
       ghost.style.margin = '0';
       document.body.appendChild(ghost);
-
       dragStateRef.current = {
-        active: true,
-        oppId,
-        ghost,
+        active: true, oppId, ghost,
         offsetX: startX - rect.left,
         offsetY: startY - rect.top,
-        startX,
-        startY,
-        suppressClick: false,
+        startX, startY, suppressClick: false,
       };
-
       onDragStart(oppId);
       setTouchPressId(null);
-
-      // Lock body scroll while dragging.
       document.body.style.overflow = 'hidden';
-
-      // Haptic blip if available.
       if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
         try { navigator.vibrate(35); } catch {}
       }
@@ -1574,7 +1772,6 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
   }
 
   function handleCardClick(e, opp) {
-    // Swallow the synthetic click that fires right after a touch-drop.
     if (dragStateRef.current.suppressClick) {
       e.preventDefault();
       return;
@@ -1700,13 +1897,7 @@ function ContactsView({ contacts, opportunities, onNew, onEdit, onDelete }) {
     if (!q) return contacts;
     return contacts.filter(c => {
       const haystack = [
-        c.name,
-        c.email,
-        c.phone,
-        c.petName,
-        c.petType,
-        c.petBreed,
-        c.notes,
+        c.name, c.email, c.phone, c.petName, c.petType, c.petBreed, c.notes,
         c.petAge != null ? String(c.petAge) : '',
         c.purchaseFrequency != null ? String(c.purchaseFrequency) : '',
       ].filter(Boolean).join(' ').toLowerCase();
@@ -2041,16 +2232,17 @@ function TaskForm({ onSubmit, onCancel }) {
 }
 
 // ────────────────────────────────────────────────
-// OPPORTUNITY FORM
+// OPPORTUNITY FORM  (FIX 1 + FIX 2)
 // ────────────────────────────────────────────────
 function OpportunityForm({ contacts, stages, initial, onSave, onClose, onNewContact }) {
   const [form, setForm] = useState({
-    title: '',
-    contactId: contacts[0]?.id || '',
-    stageId: initial?.stageId || stages[0]?.id || '',
-    value: '',
-    probability: '',
-    notes: '',
+    title: initial?._savedForm?.title || '',
+    // FIX 1: prefer initialContactId (newly created contact), then saved form, then first contact
+    contactId: initial?.initialContactId || initial?._savedForm?.contactId || contacts[0]?.id || '',
+    stageId: initial?._savedForm?.stageId || initial?.stageId || stages[0]?.id || '',
+    value: initial?._savedForm?.value || '',
+    probability: initial?._savedForm?.probability || '',
+    notes: initial?._savedForm?.notes || '',
   });
 
   function submit() {
@@ -2070,15 +2262,28 @@ function OpportunityForm({ contacts, stages, initial, onSave, onClose, onNewCont
             <label className="field-label">Título *</label>
             <input className="input" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ej: Plan anual SaaS" autoFocus />
           </div>
+
+          {/* FIX 2: typeahead instead of plain <select> */}
           <div className="modal-section">
             <label className="field-label">Contacto *</label>
             <div style={{ display: 'flex', gap: 8 }}>
-              <select className="select" value={form.contactId} onChange={e => setForm({ ...form, contactId: e.target.value })}>
-                {contacts.map(c => <option key={c.id} value={c.id}>{c.name}{c.petName ? ` — ${c.petName}` : ''}</option>)}
-              </select>
-              <button className="btn" onClick={onNewContact} title="Nuevo contacto"><Plus size={14} /></button>
+              <div style={{ flex: 1 }}>
+                <ContactTypeahead
+                  contacts={contacts}
+                  value={form.contactId}
+                  onChange={id => setForm({ ...form, contactId: id })}
+                />
+              </div>
+              <button
+                className="btn"
+                title="Nuevo contacto"
+                onClick={() => onNewContact(form)}
+              >
+                <Plus size={14} />
+              </button>
             </div>
           </div>
+
           <div className="modal-section">
             <div className="row-3">
               <div>
@@ -2281,29 +2486,20 @@ function getDateBounds(range) {
     case 'today':
       return { from: today, to: tomorrow };
     case '7d': {
-      const from = new Date(today);
-      from.setDate(today.getDate() - 6);
-      return { from, to: tomorrow };
+      const from = new Date(today); from.setDate(today.getDate() - 6); return { from, to: tomorrow };
     }
     case '30d': {
-      const from = new Date(today);
-      from.setDate(today.getDate() - 29);
-      return { from, to: tomorrow };
+      const from = new Date(today); from.setDate(today.getDate() - 29); return { from, to: tomorrow };
     }
     case 'month': {
-      const from = new Date(now.getFullYear(), now.getMonth(), 1);
-      const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      return { from, to };
+      return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 1) };
     }
     case 'year': {
-      const from = new Date(now.getFullYear(), 0, 1);
-      const to = new Date(now.getFullYear() + 1, 0, 1);
-      return { from, to };
+      return { from: new Date(now.getFullYear(), 0, 1), to: new Date(now.getFullYear() + 1, 0, 1) };
     }
     case 'custom': {
       const from = range.from ? new Date(range.from + 'T00:00:00') : null;
       const to = range.to ? new Date(range.to + 'T23:59:59.999') : null;
-      // Normalize: if "to" given, push to end-of-day-exclusive
       const toExcl = to ? new Date(to.getTime() + 1) : null;
       return { from, to: toExcl };
     }
@@ -2332,10 +2528,7 @@ function rangeLabel(range) {
   if (range.preset === 'month') return 'este mes';
   if (range.preset === 'year') return 'este año';
   if (range.preset === 'custom') {
-    if (bounds.from && bounds.to) {
-      const toShown = new Date(bounds.to.getTime() - 1);
-      return `${fmt(bounds.from)} → ${fmt(toShown)}`;
-    }
+    if (bounds.from && bounds.to) { const toShown = new Date(bounds.to.getTime() - 1); return `${fmt(bounds.from)} → ${fmt(toShown)}`; }
     if (bounds.from) return `desde ${fmt(bounds.from)}`;
     if (bounds.to) return `hasta ${fmt(new Date(bounds.to.getTime() - 1))}`;
   }
@@ -2346,7 +2539,6 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
   const [range, setRange] = useState({ preset: 'all', from: '', to: '' });
   const bounds = useMemo(() => getDateBounds(range), [range]);
 
-  // Filter won opps by closedAt within the selected range.
   const wonOpps = useMemo(
     () => opportunities.filter(o => o.status === 'won' && inDateBounds(o.closedAt, bounds)),
     [opportunities, bounds]
@@ -2356,7 +2548,6 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
   const salesCount = wonOpps.length;
   const avgTicket = salesCount > 0 ? totalRevenue / salesCount : 0;
 
-  // Top customers within range
   const topCustomers = useMemo(() => {
     const stats = {};
     wonOpps.forEach(o => {
@@ -2371,10 +2562,7 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
       .slice(0, 5);
   }, [wonOpps, contacts]);
 
-  // Tasks: not affected by date filter — they're always "what's pending now"
-  const pendingTasks = tasks
-    .filter(t => !t.completed && t.dueDate)
-    .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+  const pendingTasks = tasks.filter(t => !t.completed && t.dueDate).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
   const overdueTasks = pendingTasks.filter(t => isOverdue(t.dueDate));
   const upcomingTasks = pendingTasks.filter(t => !isOverdue(t.dueDate));
   const taskList = [...overdueTasks, ...upcomingTasks].slice(0, 10);
@@ -2409,33 +2597,15 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
       <div className="date-filter">
         <span className="date-filter-label"><Calendar size={12} /> Período</span>
         {DATE_PRESETS.map(p => (
-          <button
-            key={p.id}
-            className={`date-pill ${range.preset === p.id ? 'active' : ''}`}
-            onClick={() => setRange({ ...range, preset: p.id })}
-          >
+          <button key={p.id} className={`date-pill ${range.preset === p.id ? 'active' : ''}`} onClick={() => setRange({ ...range, preset: p.id })}>
             {p.label}
           </button>
         ))}
         {range.preset === 'custom' && (
           <div className="date-custom">
-            <input
-              type="date"
-              className="date-input-mini"
-              value={range.from}
-              max={range.to || undefined}
-              onChange={e => setRange({ ...range, from: e.target.value })}
-              placeholder="desde"
-            />
+            <input type="date" className="date-input-mini" value={range.from} max={range.to || undefined} onChange={e => setRange({ ...range, from: e.target.value })} />
             <span style={{ color: 'var(--muted)', fontSize: 12 }}>→</span>
-            <input
-              type="date"
-              className="date-input-mini"
-              value={range.to}
-              min={range.from || undefined}
-              onChange={e => setRange({ ...range, to: e.target.value })}
-              placeholder="hasta"
-            />
+            <input type="date" className="date-input-mini" value={range.to} min={range.from || undefined} onChange={e => setRange({ ...range, to: e.target.value })} />
           </div>
         )}
       </div>
@@ -2445,27 +2615,20 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
           <div className="stat-icon"><TrendingUp size={16} /></div>
           <div className="stat-label">Facturación</div>
           <div className="stat-value">{formatMoney(totalRevenue)}</div>
-          <div className="stat-foot">
-            {salesCount === 0
-              ? (isFiltered ? `sin ventas en ${rangeText}` : 'sin ventas todavía')
-              : `${salesCount} venta${salesCount !== 1 ? 's' : ''} · ${rangeText}`}
-          </div>
+          <div className="stat-foot">{salesCount === 0 ? (isFiltered ? `sin ventas en ${rangeText}` : 'sin ventas todavía') : `${salesCount} venta${salesCount !== 1 ? 's' : ''} · ${rangeText}`}</div>
         </div>
-
         <div className="stat-card" style={{ '--stat-accent': '#c8853d', '--stat-soft': 'rgba(200, 133, 61, 0.1)' }}>
           <div className="stat-icon"><Receipt size={16} /></div>
           <div className="stat-label">Ticket promedio</div>
           <div className="stat-value">{salesCount > 0 ? formatMoney(avgTicket) : '—'}</div>
           <div className="stat-foot">{salesCount > 0 ? `sobre ${salesCount} venta${salesCount !== 1 ? 's' : ''}` : 'sin datos en el período'}</div>
         </div>
-
         <div className="stat-card" style={{ '--stat-accent': '#5a7a8a', '--stat-soft': 'rgba(90, 122, 138, 0.1)' }}>
           <div className="stat-icon"><Trophy size={16} /></div>
           <div className="stat-label">Cantidad de ventas</div>
           <div className="stat-value">{salesCount}</div>
           <div className="stat-foot">{contacts.length} contacto{contacts.length !== 1 ? 's' : ''} en cartera</div>
         </div>
-
         <div className="stat-card" style={{ '--stat-accent': '#c8553d', '--stat-soft': 'rgba(200, 85, 61, 0.1)' }}>
           <div className="stat-icon"><AlertCircle size={16} /></div>
           <div className="stat-label">Tareas vencidas</div>
@@ -2510,11 +2673,7 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
                 const overdue = isOverdue(t.dueDate);
                 return (
                   <div key={t.id} className={`dash-task ${t.completed ? 'done' : ''}`}>
-                    <button
-                      className={`task-check ${t.completed ? 'checked' : ''}`}
-                      onClick={() => onToggleTask(t.id)}
-                      title="Marcar como hecha"
-                    >
+                    <button className={`task-check ${t.completed ? 'checked' : ''}`} onClick={() => onToggleTask(t.id)} title="Marcar como hecha">
                       {t.completed && <Check size={12} strokeWidth={3} />}
                     </button>
                     <div className="dash-task-content">
@@ -2528,9 +2687,7 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
                         </span>
                       </div>
                     </div>
-                    <span className={`dash-task-when ${overdue ? 'overdue' : ''}`}>
-                      {relativeTime(t.dueDate)}
-                    </span>
+                    <span className={`dash-task-when ${overdue ? 'overdue' : ''}`}>{relativeTime(t.dueDate)}</span>
                   </div>
                 );
               })}
