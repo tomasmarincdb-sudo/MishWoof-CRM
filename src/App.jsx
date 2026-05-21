@@ -766,7 +766,7 @@ input, textarea, select { font-family: inherit; }
 /* Dashboard */
 .dashboard-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 14px;
   margin-bottom: 28px;
 }
@@ -996,13 +996,35 @@ input, textarea, select { font-family: inherit; }
 }
 .typeahead-clear:hover { background: var(--surface-2); color: var(--ink); }
 
+/* Pipeline status filter */
+.pipeline-filter {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  align-items: center;
+}
+.pipeline-filter-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 500;
+  padding-right: 10px;
+  margin-right: 4px;
+  border-right: 1px solid var(--border);
+}
+
 @media (max-width: 1024px) {
   .dashboard-stats { grid-template-columns: repeat(2, 1fr); }
   .dashboard-cols { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
-  .dashboard-stats { grid-template-columns: 1fr; }
+  .dashboard-stats { grid-template-columns: repeat(2, 1fr); }
   .header { padding: 14px 16px; }
   .page { padding: 20px 16px; }
   .page-title { font-size: 38px; }
@@ -1112,7 +1134,6 @@ function ContactTypeahead({ contacts, value, onChange, onNewContact }) {
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Keep label in sync if the selected contact changes externally
   useEffect(() => {
     const c = contacts.find(c => c.id === value);
     setInputVal(displayLabel(c));
@@ -1126,12 +1147,10 @@ function ContactTypeahead({ contacts, value, onChange, onNewContact }) {
     );
   }, [contacts, inputVal]);
 
-  // Close on outside click
   useEffect(() => {
     function handleClick(e) {
       if (wrapRef.current && !wrapRef.current.contains(e.target)) {
         setOpen(false);
-        // Reset display to current valid selection
         const c = contacts.find(c => c.id === value);
         setInputVal(displayLabel(c));
       }
@@ -1248,27 +1267,19 @@ export default function CRM() {
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverStage, setDragOverStage] = useState(null);
 
-  // ── FIX 1: track if contact form was opened from within opp form ──
-  // Stores the opp form context so we can reopen it after contact creation.
-  // Shape: { stageId?: string, initialContactId?: string } | null
   const pendingOppContextRef = useRef(null);
 
   // Load
   useEffect(() => {
     (async () => {
       try {
-        console.log('[APP] llamando a storage.get...');
         const res = await window.storage.get(STORAGE_KEY);
-        console.log('[APP] respuesta de storage:', res);
         if (res && res.value) {
           const data = JSON.parse(res.value);
-          console.log('[APP] datos parseados:', data);
           setContacts(data.contacts || []);
           setStages(data.stages || DEFAULT_STAGES);
           setOpportunities(data.opportunities || []);
           setTasks(data.tasks || []);
-        } else {
-          console.log('[APP] sin datos — empezando vacío');
         }
       } catch (e) {
         console.error('[APP] error:', e);
@@ -1300,13 +1311,11 @@ export default function CRM() {
   // CONTACT actions
   function saveContact(data) {
     if (data.id) {
-      // Editing existing contact
       setContacts(contacts.map(c => c.id === data.id ? data : c));
       showToast('Contacto actualizado');
       setShowNewContact(false);
       setEditingContact(null);
     } else {
-      // Creating new contact
       const newId = uid();
       const newContact = { ...data, id: newId };
       setContacts(prev => [...prev, newContact]);
@@ -1314,11 +1323,9 @@ export default function CRM() {
       setShowNewContact(false);
       setEditingContact(null);
 
-      // ── FIX 1: if we came from the opp form, reopen it with the new contact pre-selected
       if (pendingOppContextRef.current !== null) {
         const ctx = pendingOppContextRef.current;
         pendingOppContextRef.current = null;
-        // Small timeout so the contacts state update propagates before the form mounts
         setTimeout(() => {
           setShowNewOpp({ ...ctx, initialContactId: newId });
         }, 0);
@@ -1415,8 +1422,6 @@ export default function CRM() {
   }
 
   // Selectors
-  const activeOpps = opportunities.filter(o => o.status === 'active');
-  const closedOpps = opportunities.filter(o => o.status !== 'active');
   const tasksByOpp = (oppId) => tasks.filter(t => t.opportunityId === oppId);
   const nextDueTask = (oppId) => tasksByOpp(oppId)
     .filter(t => !t.completed && t.dueDate)
@@ -1441,9 +1446,10 @@ export default function CRM() {
         {/* HEADER */}
         <header className="header">
           <div className="header-inner">
+            {/* ── CHANGE 1: título Mish & Woof ── */}
             <div className="brand">
-              <span className="brand-mark">e</span>
-              <span className="brand-name">embudo<em>.</em></span>
+              <span className="brand-mark">M</span>
+              <span className="brand-name">Mish <em>&amp; Woof</em></span>
             </div>
             <div className="tabs">
               <button className={`tab ${view === 'dashboard' ? 'active' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
@@ -1484,7 +1490,8 @@ export default function CRM() {
           {view === 'pipeline' && (
             <PipelineView
               stages={stages}
-              opps={activeOpps}
+              // ── CHANGE 2: pasamos TODAS las oportunidades para que el filtro funcione ──
+              opps={opportunities}
               contactById={contactById}
               tasksByOpp={tasksByOpp}
               nextDueTask={nextDueTask}
@@ -1528,7 +1535,7 @@ export default function CRM() {
 
           {view === 'closed' && (
             <ClosedView
-              opps={closedOpps}
+              opps={opportunities.filter(o => o.status !== 'active')}
               contactById={contactById}
               onCardClick={setSelectedOpp}
             />
@@ -1560,11 +1567,9 @@ export default function CRM() {
             onSave={saveOpp}
             onClose={() => setShowNewOpp(false)}
             onNewContact={(currentFormState) => {
-              // ── FIX 1: save current opp form context before switching to contact form
               pendingOppContextRef.current = {
                 stageId: currentFormState?.stageId,
                 initialContactId: currentFormState?.contactId,
-                // carry over other form fields so the form reopens with them intact
                 _savedForm: currentFormState,
               };
               setShowNewOpp(false);
@@ -1580,8 +1585,6 @@ export default function CRM() {
             onClose={() => {
               setShowNewContact(false);
               setEditingContact(null);
-              // If user dismisses without saving and we had a pending opp context,
-              // reopen the opp form as-is.
               if (pendingOppContextRef.current !== null) {
                 const ctx = pendingOppContextRef.current;
                 pendingOppContextRef.current = null;
@@ -1607,13 +1610,18 @@ export default function CRM() {
 }
 
 // ────────────────────────────────────────────────
-// PIPELINE VIEW (with mobile touch drag)
+// PIPELINE VIEW — CHANGE 2: filtro de estado
 // ────────────────────────────────────────────────
 function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCardClick, onDragStart, onDragEnd, draggingId, dragOverStage, setDragOverStage, onDrop, onNewInStage, onDropStatus }) {
-  const totalValue = opps.reduce((s, o) => s + (Number(o.value) || 0), 0);
+  // Filter: 'active' | 'won' | 'lost'
+  const [statusFilter, setStatusFilter] = useState('active');
   const [dragOverZone, setDragOverZone] = useState(null);
   const [touchPressId, setTouchPressId] = useState(null);
   const isDragging = !!draggingId;
+
+  // Apply status filter
+  const filteredOpps = opps.filter(o => o.status === statusFilter);
+  const totalValue = filteredOpps.reduce((s, o) => s + (Number(o.value) || 0), 0);
 
   const longPressTimerRef = useRef(null);
   const dragStateRef = useRef({
@@ -1779,25 +1787,49 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
     onCardClick(opp);
   }
 
+  const STATUS_FILTER_OPTIONS = [
+    { id: 'active', label: 'Abiertas' },
+    { id: 'won',    label: 'Ganadas' },
+    { id: 'lost',   label: 'Perdidas' },
+  ];
+
   return (
     <>
       <div className="page-head">
         <div>
           <h1 className="page-title">Pipeline</h1>
-          <p className="page-sub">{opps.length} oportunidades activas — valor total {formatMoney(totalValue)}</p>
+          <p className="page-sub">{filteredOpps.length} oportunidades · valor total {formatMoney(totalValue)}</p>
         </div>
       </div>
 
-      {opps.length === 0 && stages.length > 0 && (
+      {/* ── CHANGE 2: filtro de estado ── */}
+      <div className="pipeline-filter">
+        <span className="pipeline-filter-label">Estado</span>
+        {STATUS_FILTER_OPTIONS.map(f => (
+          <button
+            key={f.id}
+            className={`date-pill ${statusFilter === f.id ? 'active' : ''}`}
+            onClick={() => setStatusFilter(f.id)}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {filteredOpps.length === 0 && stages.length > 0 && (
         <div className="empty">
-          <div className="empty-title">Pizarra en blanco</div>
-          <div className="empty-text">Empezá agregando un contacto y luego una oportunidad. Las verás moverse por el embudo.</div>
+          <div className="empty-title">Sin oportunidades</div>
+          <div className="empty-text">
+            {statusFilter === 'active' && 'Empezá agregando un contacto y luego una oportunidad.'}
+            {statusFilter === 'won' && 'Todavía no ganaste ninguna oportunidad.'}
+            {statusFilter === 'lost' && 'No hay oportunidades perdidas.'}
+          </div>
         </div>
       )}
 
       <div className="kanban">
         {stages.map((stage, idx) => {
-          const colOpps = opps.filter(o => o.stageId === stage.id);
+          const colOpps = filteredOpps.filter(o => o.stageId === stage.id);
           const accent = STAGE_ACCENTS[idx % STAGE_ACCENTS.length];
           return (
             <div
@@ -1830,7 +1862,7 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
                   return (
                     <div
                       key={opp.id}
-                      className={`card ${draggingId === opp.id ? 'dragging' : ''} ${touchPressId === opp.id ? 'touch-pressing' : ''}`}
+                      className={`card ${opp.status !== 'active' ? opp.status : ''} ${draggingId === opp.id ? 'dragging' : ''} ${touchPressId === opp.id ? 'touch-pressing' : ''}`}
                       draggable
                       onDragStart={() => onDragStart(opp.id)}
                       onDragEnd={onDragEnd}
@@ -2050,7 +2082,7 @@ function ClosedView({ opps, contactById, onCardClick }) {
 }
 
 // ────────────────────────────────────────────────
-// OPPORTUNITY DETAIL MODAL
+// OPPORTUNITY DETAIL MODAL — CHANGE 3: costos
 // ────────────────────────────────────────────────
 function OpportunityDetail({ opp, contact, stages, tasks, onClose, onSave, onDelete, onStatus, onAddTask, onToggleTask, onDeleteTask }) {
   const [editing, setEditing] = useState(false);
@@ -2103,7 +2135,8 @@ function OpportunityDetail({ opp, contact, stages, tasks, onClose, onSave, onDel
 
         <div className="modal-body">
           <div className="modal-section">
-            <div className="row-3" style={{ marginBottom: 14 }}>
+            {/* Fila 1: Etapa / Valor / Probabilidad */}
+            <div className="row-3" style={{ marginBottom: 12 }}>
               <div>
                 <label className="field-label">Etapa</label>
                 {editing ? (
@@ -2131,6 +2164,27 @@ function OpportunityDetail({ opp, contact, stages, tasks, onClose, onSave, onDel
                 )}
               </div>
             </div>
+
+            {/* ── CHANGE 3: Fila 2 — Costo de producto / Costo de envío ── */}
+            <div className="row" style={{ marginBottom: 14 }}>
+              <div>
+                <label className="field-label">Costo de producto</label>
+                {editing ? (
+                  <input className="input" type="number" value={form.productCost || ''} onChange={e => setForm({ ...form, productCost: e.target.value })} placeholder="0" />
+                ) : (
+                  <div className="mono" style={{ fontSize: 14, padding: '9px 0' }}>{formatMoney(opp.productCost)}</div>
+                )}
+              </div>
+              <div>
+                <label className="field-label">Costo de envío</label>
+                {editing ? (
+                  <input className="input" type="number" value={form.shippingCost || ''} onChange={e => setForm({ ...form, shippingCost: e.target.value })} placeholder="0" />
+                ) : (
+                  <div className="mono" style={{ fontSize: 14, padding: '9px 0' }}>{formatMoney(opp.shippingCost)}</div>
+                )}
+              </div>
+            </div>
+
             <label className="field-label">Notas</label>
             {editing ? (
               <textarea className="textarea" value={form.notes || ''} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Detalles, contexto…" />
@@ -2232,22 +2286,30 @@ function TaskForm({ onSubmit, onCancel }) {
 }
 
 // ────────────────────────────────────────────────
-// OPPORTUNITY FORM  (FIX 1 + FIX 2)
+// OPPORTUNITY FORM — CHANGE 3: costos
 // ────────────────────────────────────────────────
 function OpportunityForm({ contacts, stages, initial, onSave, onClose, onNewContact }) {
   const [form, setForm] = useState({
     title: initial?._savedForm?.title || '',
-    // FIX 1: prefer initialContactId (newly created contact), then saved form, then first contact
     contactId: initial?.initialContactId || initial?._savedForm?.contactId || contacts[0]?.id || '',
     stageId: initial?._savedForm?.stageId || initial?.stageId || stages[0]?.id || '',
     value: initial?._savedForm?.value || '',
     probability: initial?._savedForm?.probability || '',
     notes: initial?._savedForm?.notes || '',
+    // ── CHANGE 3: nuevos campos de costo ──
+    productCost: initial?._savedForm?.productCost || '',
+    shippingCost: initial?._savedForm?.shippingCost || '',
   });
 
   function submit() {
     if (!form.title.trim() || !form.contactId) return;
-    onSave({ ...form, value: form.value ? Number(form.value) : null, probability: form.probability ? Number(form.probability) : null });
+    onSave({
+      ...form,
+      value: form.value ? Number(form.value) : null,
+      probability: form.probability ? Number(form.probability) : null,
+      productCost: form.productCost ? Number(form.productCost) : null,
+      shippingCost: form.shippingCost ? Number(form.shippingCost) : null,
+    });
   }
 
   return (
@@ -2263,7 +2325,6 @@ function OpportunityForm({ contacts, stages, initial, onSave, onClose, onNewCont
             <input className="input" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ej: Plan anual SaaS" autoFocus />
           </div>
 
-          {/* FIX 2: typeahead instead of plain <select> */}
           <div className="modal-section">
             <label className="field-label">Contacto *</label>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -2302,6 +2363,21 @@ function OpportunityForm({ contacts, stages, initial, onSave, onClose, onNewCont
               </div>
             </div>
           </div>
+
+          {/* ── CHANGE 3: campos de costo en el form de creación ── */}
+          <div className="modal-section">
+            <div className="row">
+              <div>
+                <label className="field-label">Costo de producto (USD)</label>
+                <input className="input" type="number" value={form.productCost} onChange={e => setForm({ ...form, productCost: e.target.value })} placeholder="0" />
+              </div>
+              <div>
+                <label className="field-label">Costo de envío (USD)</label>
+                <input className="input" type="number" value={form.shippingCost} onChange={e => setForm({ ...form, shippingCost: e.target.value })} placeholder="0" />
+              </div>
+            </div>
+          </div>
+
           <div className="modal-section">
             <label className="field-label">Notas</label>
             <textarea className="textarea" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Detalles, contexto…" />
@@ -2464,7 +2540,7 @@ function StageManager({ stages, opportunities, onSave, onClose }) {
 }
 
 // ────────────────────────────────────────────────
-// DASHBOARD VIEW (with date filter)
+// DASHBOARD VIEW — CHANGE 4: márgenes bruto y neto
 // ────────────────────────────────────────────────
 const DATE_PRESETS = [
   { id: 'all', label: 'Todo' },
@@ -2548,6 +2624,12 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
   const salesCount = wonOpps.length;
   const avgTicket = salesCount > 0 ? totalRevenue / salesCount : 0;
 
+  // ── CHANGE 4: cálculo de márgenes ──
+  const totalProductCost = wonOpps.reduce((s, o) => s + (Number(o.productCost) || 0), 0);
+  const totalShippingCost = wonOpps.reduce((s, o) => s + (Number(o.shippingCost) || 0), 0);
+  const grossMargin = totalRevenue - totalProductCost;
+  const netMargin = totalRevenue - totalProductCost - totalShippingCost;
+
   const topCustomers = useMemo(() => {
     const stats = {};
     wonOpps.forEach(o => {
@@ -2610,7 +2692,9 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
         )}
       </div>
 
+      {/* ── CHANGE 4: 6 stat cards en 3 columnas ── */}
       <div className="dashboard-stats">
+        {/* Fila 1 */}
         <div className="stat-card" style={{ '--stat-accent': '#2d5a3f', '--stat-soft': 'rgba(45, 90, 63, 0.1)' }}>
           <div className="stat-icon"><TrendingUp size={16} /></div>
           <div className="stat-label">Facturación</div>
@@ -2628,6 +2712,23 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
           <div className="stat-label">Cantidad de ventas</div>
           <div className="stat-value">{salesCount}</div>
           <div className="stat-foot">{contacts.length} contacto{contacts.length !== 1 ? 's' : ''} en cartera</div>
+        </div>
+        {/* Fila 2 */}
+        <div className="stat-card" style={{ '--stat-accent': '#7a8b6f', '--stat-soft': 'rgba(122, 139, 111, 0.1)' }}>
+          <div className="stat-icon"><TrendingUp size={16} /></div>
+          <div className="stat-label">Margen bruto</div>
+          <div className="stat-value" style={{ color: salesCount > 0 && grossMargin < 0 ? 'var(--lost)' : 'inherit' }}>
+            {salesCount > 0 ? formatMoney(grossMargin) : '—'}
+          </div>
+          <div className="stat-foot">Facturación − costo de producto</div>
+        </div>
+        <div className="stat-card" style={{ '--stat-accent': '#9a6a8a', '--stat-soft': 'rgba(154, 106, 138, 0.1)' }}>
+          <div className="stat-icon"><Receipt size={16} /></div>
+          <div className="stat-label">Margen neto</div>
+          <div className="stat-value" style={{ color: salesCount > 0 && netMargin < 0 ? 'var(--lost)' : 'inherit' }}>
+            {salesCount > 0 ? formatMoney(netMargin) : '—'}
+          </div>
+          <div className="stat-foot">Facturación − producto − envío</div>
         </div>
         <div className="stat-card" style={{ '--stat-accent': '#c8553d', '--stat-soft': 'rgba(200, 85, 61, 0.1)' }}>
           <div className="stat-icon"><AlertCircle size={16} /></div>
