@@ -1402,8 +1402,13 @@ export default function CRM() {
   function setOppStatus(id, status) {
     const opp = opportunities.find(o => o.id === id);
     const wasWon = opp?.status === 'won';
-    setOpportunities(opportunities.map(o => o.id === id ? { ...o, status, closedAt: status !== 'active' ? new Date().toISOString() : null } : o));
-    if (selectedOpp?.id === id) setSelectedOpp({ ...selectedOpp, status });
+    // Update funcional: garantiza que ve el estado más reciente aunque onSave
+    // haya corrido justo antes (desde handleStatus en OpportunityDetail)
+    setOpportunities(prev => prev.map(o => o.id === id
+      ? { ...o, status, closedAt: status !== 'active' ? new Date().toISOString() : null }
+      : o
+    ));
+    if (selectedOpp?.id === id) setSelectedOpp(prev => ({ ...prev, status }));
 
     let autoTaskCreated = false;
     if (status === 'won' && !wasWon && opp) {
@@ -2162,6 +2167,14 @@ function OpportunityDetail({ opp, contact, stages, tasks, onClose, onSave, onDel
     setEditing(false);
   }
 
+  // Guarda el form (costos, título, etc.) antes de cambiar el estado,
+  // para que no se pierdan datos editados sin haber clickeado "Guardar"
+  function handleStatus(s) {
+    onSave({ ...opp, ...form });
+    onStatus(s);
+    setEditing(false);
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -2187,15 +2200,15 @@ function OpportunityDetail({ opp, contact, stages, tasks, onClose, onSave, onDel
           </span>
           {opp.status === 'active' ? (
             <>
-              <button className="btn" style={{ marginLeft: 'auto', color: 'var(--won)' }} onClick={() => onStatus('won')}>
+              <button className="btn" style={{ marginLeft: 'auto', color: 'var(--won)' }} onClick={() => handleStatus('won')}>
                 <Trophy size={14} /> Ganar
               </button>
-              <button className="btn" style={{ color: 'var(--lost)' }} onClick={() => onStatus('lost')}>
+              <button className="btn" style={{ color: 'var(--lost)' }} onClick={() => handleStatus('lost')}>
                 <XCircle size={14} /> Perder
               </button>
             </>
           ) : (
-            <button className="btn" style={{ marginLeft: 'auto' }} onClick={() => onStatus('active')}>
+            <button className="btn" style={{ marginLeft: 'auto' }} onClick={() => handleStatus('active')}>
               <ArrowLeft size={14} /> Reabrir
             </button>
           )}
