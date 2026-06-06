@@ -1303,6 +1303,44 @@ export default function CRM() {
     return () => clearTimeout(saveTimerRef.current);
   }, [contacts, stages, opportunities, tasks, loading]);
 
+  // ── FIX B: ref que siempre tiene el estado actual (evita stale closures en el polling) ──
+  const stateRef = useRef({ contacts, stages, opportunities, tasks });
+  useEffect(() => {
+    stateRef.current = { contacts, stages, opportunities, tasks };
+  }, [contacts, stages, opportunities, tasks]);
+
+  // ── FIX B: polling cada 45 s — sincroniza cambios de otros usuarios ──
+  useEffect(() => {
+    if (loading) return;
+    const POLL_MS = 45_000;
+
+    const id = setInterval(async () => {
+      try {
+        const fresh = await window.storage.refresh?.();
+        // null = sin cambios remotos, o hay un save pendiente → no hacer nada
+        if (!fresh) return;
+
+        const remote = JSON.parse(fresh.value);
+        // Comparar con estado actual via ref (no con el closure estático)
+        const localJSON = JSON.stringify(stateRef.current);
+        if (fresh.value === localJSON) return;
+
+        // Hay cambios de otro usuario: actualizar estado local.
+        // El save effect se va a disparar pero window.storage.set()
+        // lo va a skipear porque lastSavedJSON ya fue actualizado en refresh().
+        setContacts(remote.contacts || []);
+        setStages(remote.stages || DEFAULT_STAGES);
+        setOpportunities(remote.opportunities || []);
+        setTasks(remote.tasks || []);
+        showToast('✓ Sincronizado con cambios recientes');
+      } catch (e) {
+        console.error('[APP] error en sync polling:', e);
+      }
+    }, POLL_MS);
+
+    return () => clearInterval(id);
+  }, [loading]); // sin deps de state: el interval es estable, stateRef es el que cambia
+
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(''), 2200);
@@ -1391,10 +1429,15 @@ export default function CRM() {
       }
     }
 
+    // ── borrar tareas de la oportunidad cuando se pierde ──
+    if (status === 'lost') {
+      setTasks(prev => prev.filter(t => t.opportunityId !== id));
+    }
+
     if (status === 'won') {
       showToast(autoTaskCreated ? '🏆 Ganada · tarea de seguimiento creada' : '🏆 Marcada como ganada');
     } else if (status === 'lost') {
-      showToast('Marcada como perdida');
+      showToast('Marcada como perdida · tareas eliminadas');
     } else {
       showToast('Reabierta');
     }
@@ -1446,7 +1489,6 @@ export default function CRM() {
         {/* HEADER */}
         <header className="header">
           <div className="header-inner">
-            {/* ── CHANGE 1: título Mish & Woof ── */}
             <div className="brand">
               <span className="brand-mark">M</span>
               <span className="brand-name">Mish <em>&amp; Woof</em></span>
@@ -1490,7 +1532,6 @@ export default function CRM() {
           {view === 'pipeline' && (
             <PipelineView
               stages={stages}
-              // ── CHANGE 2: pasamos TODAS las oportunidades para que el filtro funcione ──
               opps={opportunities}
               contactById={contactById}
               tasksByOpp={tasksByOpp}
@@ -1610,16 +1651,14 @@ export default function CRM() {
 }
 
 // ────────────────────────────────────────────────
-// PIPELINE VIEW — CHANGE 2: filtro de estado
+// PIPELINE VIEW
 // ────────────────────────────────────────────────
 function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCardClick, onDragStart, onDragEnd, draggingId, dragOverStage, setDragOverStage, onDrop, onNewInStage, onDropStatus }) {
-  // Filter: 'active' | 'won' | 'lost'
   const [statusFilter, setStatusFilter] = useState('active');
   const [dragOverZone, setDragOverZone] = useState(null);
   const [touchPressId, setTouchPressId] = useState(null);
   const isDragging = !!draggingId;
 
-  // Apply status filter
   const filteredOpps = opps.filter(o => o.status === statusFilter);
   const totalValue = filteredOpps.reduce((s, o) => s + (Number(o.value) || 0), 0);
 
@@ -1802,7 +1841,6 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
         </div>
       </div>
 
-      {/* ── CHANGE 2: filtro de estado ── */}
       <div className="pipeline-filter">
         <span className="pipeline-filter-label">Estado</span>
         {STATUS_FILTER_OPTIONS.map(f => (
@@ -1919,7 +1957,7 @@ function PipelineView({ stages, opps, contactById, tasksByOpp, nextDueTask, onCa
 }
 
 // ────────────────────────────────────────────────
-// CONTACTS VIEW (with search)
+// CONTACTS VIEW
 // ────────────────────────────────────────────────
 function ContactsView({ contacts, opportunities, onNew, onEdit, onDelete }) {
   const [search, setSearch] = useState('');
@@ -2037,9 +2075,13 @@ function ContactsView({ contacts, opportunities, onNew, onEdit, onDelete }) {
 // CLOSED VIEW
 // ────────────────────────────────────────────────
 function ClosedView({ opps, contactById, onCardClick }) {
+  const [filter, setFilter] = useState('all'); // 'all' | 'won' | 'lost'
+
   const won = opps.filter(o => o.status === 'won');
   const lost = opps.filter(o => o.status === 'lost');
   const wonValue = won.reduce((s, o) => s + (Number(o.value) || 0), 0);
+
+  const displayed = filter === 'all' ? opps : opps.filter(o => o.status === filter);
 
   return (
     <>
@@ -2050,14 +2092,40 @@ function ClosedView({ opps, contactById, onCardClick }) {
         </div>
       </div>
 
+      {opps.length > 0 && (
+        <div className="pipeline-filter">
+          <span className="pipeline-filter-label">Mostrar</span>
+          {[
+            { id: 'all',  label: 'Todas' },
+            { id: 'won',  label: 'Ganadas' },
+            { id: 'lost', label: 'Perdidas' },
+          ].map(f => (
+            <button
+              key={f.id}
+              className={`date-pill ${filter === f.id ? 'active' : ''}`}
+              onClick={() => setFilter(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {opps.length === 0 ? (
         <div className="empty">
           <div className="empty-title">Aún no cerraste nada</div>
           <div className="empty-text">Cuando ganes o pierdas una oportunidad aparecerá acá.</div>
         </div>
+      ) : displayed.length === 0 ? (
+        <div className="empty">
+          <div className="empty-title">Sin resultados</div>
+          <div className="empty-text">
+            {filter === 'won' ? 'No hay oportunidades ganadas todavía.' : 'No hay oportunidades perdidas.'}
+          </div>
+        </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-          {opps.map(opp => {
+          {displayed.map(opp => {
             const c = contactById(opp.contactId);
             return (
               <div key={opp.id} className={`card ${opp.status}`} onClick={() => onCardClick(opp)} style={{ cursor: 'pointer' }}>
@@ -2082,7 +2150,7 @@ function ClosedView({ opps, contactById, onCardClick }) {
 }
 
 // ────────────────────────────────────────────────
-// OPPORTUNITY DETAIL MODAL — CHANGE 3: costos
+// OPPORTUNITY DETAIL MODAL
 // ────────────────────────────────────────────────
 function OpportunityDetail({ opp, contact, stages, tasks, onClose, onSave, onDelete, onStatus, onAddTask, onToggleTask, onDeleteTask }) {
   const [editing, setEditing] = useState(false);
@@ -2135,7 +2203,6 @@ function OpportunityDetail({ opp, contact, stages, tasks, onClose, onSave, onDel
 
         <div className="modal-body">
           <div className="modal-section">
-            {/* Fila 1: Etapa / Valor / Probabilidad */}
             <div className="row-3" style={{ marginBottom: 12 }}>
               <div>
                 <label className="field-label">Etapa</label>
@@ -2165,7 +2232,6 @@ function OpportunityDetail({ opp, contact, stages, tasks, onClose, onSave, onDel
               </div>
             </div>
 
-            {/* ── CHANGE 3: Fila 2 — Costo de producto / Costo de envío ── */}
             <div className="row" style={{ marginBottom: 14 }}>
               <div>
                 <label className="field-label">Costo de producto</label>
@@ -2286,7 +2352,7 @@ function TaskForm({ onSubmit, onCancel }) {
 }
 
 // ────────────────────────────────────────────────
-// OPPORTUNITY FORM — CHANGE 3: costos
+// OPPORTUNITY FORM
 // ────────────────────────────────────────────────
 function OpportunityForm({ contacts, stages, initial, onSave, onClose, onNewContact }) {
   const [form, setForm] = useState({
@@ -2296,7 +2362,6 @@ function OpportunityForm({ contacts, stages, initial, onSave, onClose, onNewCont
     value: initial?._savedForm?.value || '',
     probability: initial?._savedForm?.probability || '',
     notes: initial?._savedForm?.notes || '',
-    // ── CHANGE 3: nuevos campos de costo ──
     productCost: initial?._savedForm?.productCost || '',
     shippingCost: initial?._savedForm?.shippingCost || '',
   });
@@ -2364,7 +2429,6 @@ function OpportunityForm({ contacts, stages, initial, onSave, onClose, onNewCont
             </div>
           </div>
 
-          {/* ── CHANGE 3: campos de costo en el form de creación ── */}
           <div className="modal-section">
             <div className="row">
               <div>
@@ -2540,7 +2604,7 @@ function StageManager({ stages, opportunities, onSave, onClose }) {
 }
 
 // ────────────────────────────────────────────────
-// DASHBOARD VIEW — CHANGE 4: márgenes bruto y neto
+// DASHBOARD VIEW
 // ────────────────────────────────────────────────
 const DATE_PRESETS = [
   { id: 'all', label: 'Todo' },
@@ -2624,7 +2688,6 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
   const salesCount = wonOpps.length;
   const avgTicket = salesCount > 0 ? totalRevenue / salesCount : 0;
 
-  // ── CHANGE 4: cálculo de márgenes ──
   const totalProductCost = wonOpps.reduce((s, o) => s + (Number(o.productCost) || 0), 0);
   const totalShippingCost = wonOpps.reduce((s, o) => s + (Number(o.shippingCost) || 0), 0);
   const grossMargin = totalRevenue - totalProductCost;
@@ -2647,7 +2710,7 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
   const pendingTasks = tasks.filter(t => !t.completed && t.dueDate).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
   const overdueTasks = pendingTasks.filter(t => isOverdue(t.dueDate));
   const upcomingTasks = pendingTasks.filter(t => !isOverdue(t.dueDate));
-  const taskList = [...overdueTasks, ...upcomingTasks].slice(0, 10);
+  const taskList = [...overdueTasks, ...upcomingTasks];
 
   function getTaskContext(task) {
     if (task.opportunityId) {
@@ -2692,9 +2755,7 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
         )}
       </div>
 
-      {/* ── CHANGE 4: 6 stat cards en 3 columnas ── */}
       <div className="dashboard-stats">
-        {/* Fila 1 */}
         <div className="stat-card" style={{ '--stat-accent': '#2d5a3f', '--stat-soft': 'rgba(45, 90, 63, 0.1)' }}>
           <div className="stat-icon"><TrendingUp size={16} /></div>
           <div className="stat-label">Facturación</div>
@@ -2713,7 +2774,6 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
           <div className="stat-value">{salesCount}</div>
           <div className="stat-foot">{contacts.length} contacto{contacts.length !== 1 ? 's' : ''} en cartera</div>
         </div>
-        {/* Fila 2 */}
         <div className="stat-card" style={{ '--stat-accent': '#7a8b6f', '--stat-soft': 'rgba(122, 139, 111, 0.1)' }}>
           <div className="stat-icon"><TrendingUp size={16} /></div>
           <div className="stat-label">Margen bruto</div>
@@ -2768,7 +2828,7 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
           {taskList.length === 0 ? (
             <div className="panel-empty">No hay tareas pendientes con fecha.</div>
           ) : (
-            <>
+            <div style={{ maxHeight: 380, overflowY: 'auto', scrollbarWidth: 'thin', marginRight: -8, paddingRight: 8 }}>
               {taskList.map(t => {
                 const ctx = getTaskContext(t);
                 const overdue = isOverdue(t.dueDate);
@@ -2792,12 +2852,7 @@ function DashboardView({ opportunities, contacts, tasks, onToggleTask, onDeleteT
                   </div>
                 );
               })}
-              {pendingTasks.length > taskList.length && (
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>
-                  +{pendingTasks.length - taskList.length} más
-                </div>
-              )}
-            </>
+            </div>
           )}
         </div>
       </div>

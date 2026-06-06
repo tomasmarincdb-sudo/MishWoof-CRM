@@ -7,6 +7,8 @@ const API_URL = 'https://script.google.com/macros/s/AKfycby19dweNf-YfJDUO7A60u1y
 if (typeof window !== 'undefined' && !window.storage) {
   let saveTimer = null;
   let lastSavedJSON = null;
+  // FIX A+B: true mientras haya cambios locales no confirmados por el servidor
+  let hasUncommittedChanges = false;
   let initialLoadPromise = null;
 
   function fromSheets(data) {
@@ -30,23 +32,29 @@ if (typeof window !== 'undefined' && !window.storage) {
     if (initialLoadPromise) return initialLoadPromise;
     initialLoadPromise = (async () => {
       try {
-        console.log('[CRM] fetching inicial desde Sheets...');
+        console.log('[CRM] cargando desde Sheets...');
         const res = await fetch(API_URL);
         const data = await res.json();
-        const crmData = fromSheets(data);
-        const json = JSON.stringify(crmData);
+        const json = JSON.stringify(fromSheets(data));
         lastSavedJSON = json;
-        console.log('[CRM] datos iniciales cargados:', crmData);
+        console.log('[CRM] datos cargados');
         return json;
       } catch (err) {
-        console.error('[CRM] Error leyendo:', err);
+        console.error('[CRM] Error al cargar:', err);
         return null;
       }
     })();
     return initialLoadPromise;
   }
 
-  // Disparar carga inmediatamente
+  // FIX B: fetch fresco sin cache, para el polling
+  async function fetchFresh() {
+    // El ?t= evita que el browser cachee la respuesta
+    const res = await fetch(`${API_URL}?t=${Date.now()}`);
+    const data = await res.json();
+    return JSON.stringify(fromSheets(data));
+  }
+
   fetchInitial();
 
   window.storage = {
@@ -55,32 +63,60 @@ if (typeof window !== 'undefined' && !window.storage) {
       if (!value) return null;
       return { key, value };
     },
+
     set: async (key, value) => {
-      // No guardar si es igual a lo último que se guardó
       if (value === lastSavedJSON) {
         console.log('[CRM] skip save (sin cambios)');
         return { key, value };
       }
-      lastSavedJSON = value;
-      const crmData = JSON.parse(value);
-      const sheetsData = toSheets(crmData);
-      
+
+      hasUncommittedChanges = true; // FIX A: marcar ANTES de encolar
       clearTimeout(saveTimer);
+
       saveTimer = setTimeout(async () => {
+        const toSave = value; // closure: captura el valor de este set()
         try {
-          console.log('[CRM] guardando:', sheetsData);
+          console.log('[CRM] guardando...');
           const res = await fetch(API_URL, {
             method: 'POST',
-            body: JSON.stringify(sheetsData),
+            body: JSON.stringify(toSheets(JSON.parse(toSave))),
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           });
-          console.log('[CRM] guardado, status:', res.status);
+          console.log('[CRM] guardado OK, status:', res.status);
+          lastSavedJSON = toSave;        // FIX A: solo actualizar DESPUÉS del éxito
+          hasUncommittedChanges = false; // FIX A+B: liberar el lock de refresh
         } catch (err) {
           console.error('[CRM] Error guardando:', err);
+          // hasUncommittedChanges queda en true → refresh() no va a pisar datos locales
+          // lastSavedJSON no se actualiza → el próximo set() va a reintentar
         }
-      }, 800);
+      }, 400) ; // FIX C: reducido de 800 ms (App.jsx ya tiene su propio debounce de 400 ms)
+
       return { key, value };
     },
+
+    // FIX B: llamado desde el polling de App.jsx
+    refresh: async () => {
+      // Si hay cambios locales sin confirmar, no refrescar:
+      // pisar datos locales con datos viejos del servidor sería peor
+      if (hasUncommittedChanges) {
+        console.log('[CRM] refresh skipped: hay cambios sin confirmar');
+        return null;
+      }
+      try {
+        const freshJSON = await fetchFresh();
+        // Si el servidor tiene lo mismo que ya tenemos, no hay nada que hacer
+        if (freshJSON === lastSavedJSON) return null;
+        // Otro usuario guardó algo: actualizar referencia para que el save
+        // effect de App.jsx no dispare un save redundante con los mismos datos
+        lastSavedJSON = freshJSON;
+        return { value: freshJSON };
+      } catch (err) {
+        console.error('[CRM] Error en refresh:', err);
+        return null;
+      }
+    },
+
     delete: async (key) => ({ key, deleted: true }),
     list: async () => ({ keys: [] }),
   };
