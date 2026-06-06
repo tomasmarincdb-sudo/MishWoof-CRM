@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 
-const API_URL = 'https://script.google.com/macros/s/AKfycbyRMlQ9o9jssZNrr4zNueBh3EH_yCwpcC2k_Whc5fMiug8_4j37SmS8Hfo37wnMNmzL/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycby19dweNf-YfJDUO7A60u1yHVK2hYWoFe810A1iueCXkyKZvGr2flrBZiamAp88MRhY/exec';
 
 if (typeof window !== 'undefined' && !window.storage) {
   let saveTimer = null;
